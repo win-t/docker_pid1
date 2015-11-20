@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <string.h>
 #include <signal.h>
+#include <time.h>
 
 static char *prog_name;
 
@@ -39,14 +40,21 @@ int main(int argc, char *argv[]) {
 		if (signal(SIGTERM, sig_forwarder) == SIG_ERR) exit_errno();
 
 		int cstatus = 0;
+		int count = 5;
+		const struct timespec tenmili = { .tv_sec = 0, .tv_nsec = 10000000 };
 
 		for (;;) {
 			int status;
 			int pid = wait(&status);
 
 			if (pid == -1) {
-				if (errno == ECHILD) return WEXITSTATUS(cstatus);
-				else exit_errno();
+				if (errno == ECHILD) {
+					nanosleep(&tenmili, NULL);
+					count--;
+					if (count <= 0) return WEXITSTATUS(cstatus);
+				} else {
+					exit_errno();
+				}
 			} else if (pid == cpid) {
 				cstatus = status;
 			}
