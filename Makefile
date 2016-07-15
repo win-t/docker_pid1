@@ -1,5 +1,5 @@
 docker_pid1: main.c
-	gcc -Os -fdata-sections -ffunction-sections -Wl,--gc-sections -s -static -o $@ $<
+	gcc -Os -fdata-sections -ffunction-sections -Wl,--gc-sections -static -o $@ $<
 	strip -s $@
 
 clean:

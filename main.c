@@ -17,7 +17,7 @@ static void exit_errno() {
 	exit_error(strerror(errno));
 }
 
-static int siglist[] = {SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGUSR1, SIGUSR2};
+static int siglist[] = {SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGUSR1, SIGUSR2, SIGWINCH};
 
 static void forward_signal(int signo) {
 	if (cpid != 0) kill(cpid, signo);
