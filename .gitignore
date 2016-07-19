@@ -32,3 +32,4 @@ docker_pid1
 
 # Debug files
 *.dSYM/
+docker_pid1_static
