@@ -6,7 +6,7 @@
 
 static char *prog_name;
 
-static int cpid = 0;
+static volatile int cpid = 0;
 
 static void exit_error(char *msg) {
 	fprintf(stderr, "[ERROR %s] %s\n", prog_name, msg);
