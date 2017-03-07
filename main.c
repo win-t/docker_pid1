@@ -8,13 +8,13 @@ static char *prog_name;
 
 static volatile int cpid = 0;
 
-static void exit_error(char *msg) {
-	fprintf(stderr, "[ERROR %s] %s\n", prog_name, msg);
+static void exit_error(int line, char *msg) {
+	fprintf(stderr, "[ERROR %s] line %d: %s\n", prog_name, line, msg);
 	_exit(1);
 }
 
-static void exit_errno() {
-	exit_error(strerror(errno));
+static void exit_errno(int line) {
+	exit_error(line, strerror(errno));
 }
 
 // forwarded signal
@@ -39,19 +39,19 @@ static void register_handler() {
 	act.sa_flags = SA_RESTART;
 
 	for (int i = 0; i < sizeof(siglist) / sizeof(siglist[0]); ++i) {
-		if (sigaction(siglist[i], &act, NULL) == -1) exit_errno();
+		if (sigaction(siglist[i], &act, NULL) == -1) exit_errno(__LINE__);
 	}
 }
 
 int main(int argc, char *argv[]) {
 	prog_name = argv[0];
 
-	if (getpid() != 1) exit_error("PID is not 1");
+	if (getpid() != 1) exit_error(__LINE__, "PID is not 1");
 
-	if (argc == 1) exit_error("No command to be executed, require at least 1 argument");
+	if (argc == 1) exit_error(__LINE__, "No command to be executed, require at least 1 argument");
 
 	cpid = fork();
-	if (cpid == -1) exit_errno();
+	if (cpid == -1) exit_errno(__LINE__);
 
 	if (cpid) {
 		// parent process
@@ -67,7 +67,7 @@ int main(int argc, char *argv[]) {
 			if (pid == -1) {
 				// no child available anymore, just exit with saved exit code
 				if (errno == ECHILD) _exit(WEXITSTATUS(cstatus));
-				else exit_errno();
+				else exit_errno(__LINE__);
 			} else if (pid == cpid) {
 				// direct child, save the exit code
 				cpid = 0;
@@ -78,11 +78,15 @@ int main(int argc, char *argv[]) {
 	} else {
 		// child process
 
-		execvp(argv[1], &argv[1]);
-		exit_errno();
+		char *new_arg[argc];
+		for(int i = 1; i < argc; ++i) new_arg[i - 1] = argv[i];
+		new_arg[argc - 1] = 0;
+
+		execvp(new_arg[0], new_arg);
+		exit_errno(__LINE__);
 
 	}
 
 	// never reach here
-	exit_error("DEAD CODE !!");
+	exit_error(__LINE__, "DEAD CODE !!");
 }
