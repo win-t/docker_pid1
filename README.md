@@ -1,5 +1,5 @@
 # docker_pid1
-This program is PID 1 inside container (not only for docker)
+This program is PID 1 inside container (not only for docker), for all POSIX-compatible system, but I only tested it with Linux.
 
 ## Why we need this kind of program ?
 you can see the explanation [here](https://blog.phusion.nl/2015/01/20/docker-and-the-pid-1-zombie-reaping-problem/)
@@ -10,4 +10,4 @@ Yes, there are other tools like [tini](https://github.com/krallin/tini), but tha
 ## How to use
 Well, it's very simple, just run
 
-    docker_pid1 <the_program> [arg1] [arg2] [... argN]
+    docker_pid1 [the_program] [arg1] [arg2] [... argN]

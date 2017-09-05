@@ -18,7 +18,7 @@ static void exit_errno(int line) {
 }
 
 // forwarded signal
-static int siglist[] = {
+static int fwd_list[] = {
 	SIGHUP,
 	SIGINT,
 	SIGQUIT,
@@ -28,18 +28,24 @@ static int siglist[] = {
 	SIGWINCH,
 };
 
-static void forward_signal(int signo) {
+// unpause signal
+static int unpause_list[] = {
+	SIGINT,
+	SIGTERM,
+};
+
+static void handle_signal(int signo) {
 	if (cpid != 0) kill(cpid, signo);
 }
 
-static void register_handler() {
+static void register_signal_handler(int list[], int list_len) {
 	struct sigaction act;
 	memset(&act, 0, sizeof(struct sigaction));
-	act.sa_handler = forward_signal;
+	act.sa_handler = handle_signal;
 	act.sa_flags = SA_RESTART;
 
-	for (int i = 0; i < sizeof(siglist) / sizeof(siglist[0]); ++i) {
-		if (sigaction(siglist[i], &act, NULL) == -1) exit_errno(__LINE__);
+	for (int i = 0; i < list_len; ++i) {
+		if (sigaction(list[i], &act, NULL) == -1) exit_errno(__LINE__);
 	}
 }
 
@@ -48,15 +54,22 @@ int main(int argc, char *argv[]) {
 
 	if (getpid() != 1) exit_error(__LINE__, "PID is not 1");
 
-	if (argc == 1) exit_error(__LINE__, "No command to be executed, require at least 1 argument");
+	int sleep_mode = (argc == 1);
+	if (!sleep_mode) {
+		cpid = fork();
+		if (cpid == -1) exit_errno(__LINE__);
+	}
 
-	cpid = fork();
-	if (cpid == -1) exit_errno(__LINE__);
+	if (sleep_mode) {
 
-	if (cpid) {
+		register_signal_handler(unpause_list, sizeof(unpause_list) / sizeof(unpause_list[0]));
+		pause();
+		_exit(0);
+
+	} else if (cpid) {
 		// parent process
 
-		register_handler();
+		register_signal_handler(fwd_list, sizeof(fwd_list) / sizeof(fwd_list[0]));
 
 		int cstatus = 0;
 
