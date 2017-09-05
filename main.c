@@ -7,6 +7,7 @@
 static char *prog_name;
 
 static volatile int cpid = 0;
+static volatile int last_sig = 0;
 
 static void exit_error(int line, char *msg) {
 	fprintf(stderr, "[ERROR %s] line %d: %s\n", prog_name, line, msg);
@@ -32,9 +33,11 @@ static int fwd_list[] = {
 static int unpause_list[] = {
 	SIGINT,
 	SIGTERM,
+	SIGCHLD,
 };
 
 static void handle_signal(int signo) {
+	last_sig = signo;
 	if (cpid != 0) kill(cpid, signo);
 }
 
@@ -63,8 +66,19 @@ int main(int argc, char *argv[]) {
 	if (sleep_mode) {
 
 		register_signal_handler(unpause_list, sizeof(unpause_list) / sizeof(unpause_list[0]));
-		pause();
-		_exit(0);
+
+		int need_to_exit = 0;
+
+		for (;;) {
+			if (wait(0) == -1) {
+				if (errno == ECHILD) {
+					if (need_to_exit) _exit(0);
+					pause();
+					if(last_sig != SIGCHLD) need_to_exit = 1;
+				}
+				else exit_errno(__LINE__);
+			}
+		}
 
 	} else if (cpid) {
 		// parent process
