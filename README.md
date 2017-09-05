@@ -11,3 +11,6 @@ Yes, there are other tools like [tini](https://github.com/krallin/tini), but tha
 Well, it's very simple, just run
 
     docker_pid1 [the_program] [arg1] [arg2] [... argN]
+
+## TODO
+- create automated testing script
