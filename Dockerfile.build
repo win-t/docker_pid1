@@ -6,7 +6,7 @@ RUN apk -U add alpine-sdk \
 WORKDIR /data
 
 COPY main.c /data
-RUN gcc -Os -fdata-sections -ffunction-sections -Wl,--gc-sections -static -o docker_pid1_static main.c\
- && strip -s docker_pid1_static
+RUN gcc -Os -fdata-sections -ffunction-sections -Wl,--gc-sections -static -o docker_pid1 main.c \
+ && strip -s docker_pid1
 
-ENTRYPOINT ["/bin/tar", "c", "docker_pid1_static"]
+ENTRYPOINT ["/bin/tar", "c", "docker_pid1"]
