@@ -67,18 +67,12 @@ int main(int argc, char *argv[]) {
 
 		register_signal_handler(unpause_list, sizeof(unpause_list) / sizeof(unpause_list[0]));
 
-		int need_to_exit = 0;
-
 		for (;;) {
-			if (wait(0) == -1) {
-				if (errno == ECHILD) {
-					if (need_to_exit) _exit(0);
-					pause();
-					if(last_sig != SIGCHLD) need_to_exit = 1;
-				}
-				else exit_errno(__LINE__);
-			}
+			if (waitpid(-1, 0, WNOHANG) == 0) continue;
+			pause();
+			if(last_sig != SIGCHLD) break;
 		}
+		_exit(0);
 
 	} else if (cpid) {
 		// parent process
