@@ -6,7 +6,6 @@
 
 static char *prog_name;
 
-static volatile int cpid = 0;
 static volatile int last_sig = 0;
 
 static void exit_error(int line, char *msg) {
@@ -38,14 +37,12 @@ static int unpause_list[] = {
 
 static void handle_signal(int signo) {
 	last_sig = signo;
-	if (cpid != 0) kill(cpid, signo);
 }
 
 static void register_signal_handler(int list[], int list_len) {
 	struct sigaction act;
 	memset(&act, 0, sizeof(struct sigaction));
 	act.sa_handler = handle_signal;
-	act.sa_flags = SA_RESTART;
 
 	for (int i = 0; i < list_len; ++i) {
 		if (sigaction(list[i], &act, NULL) == -1) exit_errno(__LINE__);
@@ -57,42 +54,36 @@ int main(int argc, char *argv[]) {
 
 	if (getpid() != 1) exit_error(__LINE__, "PID is not 1");
 
-	int sleep_mode = (argc == 1);
-	if (!sleep_mode) {
-		cpid = fork();
-		if (cpid == -1) exit_errno(__LINE__);
-	}
-
-	if (sleep_mode) {
+	// sleep mode
+	if (argc == 1) {
 
 		register_signal_handler(unpause_list, sizeof(unpause_list) / sizeof(unpause_list[0]));
 
 		for (;;) {
-			if (waitpid(-1, 0, WNOHANG) == 0) continue;
 			pause();
-			if(last_sig != SIGCHLD) break;
+			if (last_sig != SIGCHLD) _exit(0);
+			waitpid(-1, 0, WNOHANG);
 		}
-		_exit(0);
 
-	} else if (cpid) {
+		exit_error(__LINE__, "DEAD CODE !!");
+	}
+
+	int cpid = fork();
+	if (cpid == -1) exit_errno(__LINE__);
+	else if (cpid) {
 		// parent process
 
 		register_signal_handler(fwd_list, sizeof(fwd_list) / sizeof(fwd_list[0]));
 
-		int cstatus = 0;
-
 		for (;;) {
 			int status;
 			int pid = wait(&status);
-
 			if (pid == -1) {
-				// no child available anymore, just exit with saved exit code
-				if (errno == ECHILD) _exit(WEXITSTATUS(cstatus));
+				// forward signal
+				if (errno == EINTR) kill(cpid, last_sig);
 				else exit_errno(__LINE__);
 			} else if (pid == cpid) {
-				// direct child, save the exit code
-				cpid = 0;
-				cstatus = status;
+				_exit(WEXITSTATUS(status));
 			}
 		}
 
@@ -108,6 +99,5 @@ int main(int argc, char *argv[]) {
 
 	}
 
-	// never reach here
 	exit_error(__LINE__, "DEAD CODE !!");
 }
