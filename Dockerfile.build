@@ -1,12 +1,12 @@
 FROM alpine
 
-RUN apk -U add alpine-sdk \
+RUN apk -U add gcc musl-dev \
  && mkdir /data
 
 WORKDIR /data
 
 COPY main.c /data
-RUN gcc -Os -fdata-sections -ffunction-sections -Wl,--gc-sections -static -o docker_pid1 main.c \
+RUN gcc -Os -Wall -fdata-sections -ffunction-sections -Wl,--gc-sections -static -o docker_pid1 main.c \
  && strip -s docker_pid1
 
 ENTRYPOINT ["/bin/tar", "c", "docker_pid1"]

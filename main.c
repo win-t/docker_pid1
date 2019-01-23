@@ -9,19 +9,9 @@
 
 static char *prog_name;
 
-static sigset_t set_all;
-static sigset_t set_normal;
-
+static volatile sigset_t set_block;
+static volatile sigset_t set_normal;
 static volatile int last_sig = 0;
-
-static void exit_error(int line, char *msg) {
-	fprintf(stderr, "[ERROR %s] line %d: %s\n", prog_name, line, msg);
-	_exit(1);
-}
-
-static void exit_errno(int line) {
-	exit_error(line, strerror(errno));
-}
 
 // forwarded signal
 static int fwd_list[] = {
@@ -41,48 +31,84 @@ static int unpause_list[] = {
 	SIGCHLD,
 };
 
+// helper function
+static void exit_error(int line, char *msg) { fprintf(stderr, "[ERROR %s] line %d: %s\n", prog_name, line, msg); _exit(1); }
+static void exit_errno(int line) { exit_error(line, strerror(errno)); }
+static void block_signal() { sigprocmask(SIG_SETMASK, (sigset_t*)(&set_block), NULL); }
+static void unblock_signals() { sigprocmask(SIG_SETMASK, (sigset_t*)(&set_normal), NULL); }
+
 static void handle_signal(int signo) {
 	last_sig = signo;
-	sigprocmask(SIG_SETMASK, &set_all, NULL);
+	block_signal();
 }
 
 static void register_signal_handler(int list[], int list_len) {
-	sigemptyset(&set_all);
-	for (int i = 0; i < list_len; ++i) {
-		sigaddset(&set_all, list[i]);
-	}
-	sigprocmask(SIG_SETMASK, NULL, &set_normal);
+	sigemptyset((sigset_t*)(&set_block));
+	for (int i = 0; i < list_len; ++i) sigaddset((sigset_t*)(&set_block), list[i]);
+	sigprocmask(SIG_SETMASK, NULL, (sigset_t*)(&set_normal));
 
 	struct sigaction act;
 	memset(&act, 0, sizeof(struct sigaction));
 	act.sa_handler = handle_signal;
-	act.sa_mask = set_all;
+	act.sa_mask = set_block;
 
 	for (int i = 0; i < list_len; ++i) {
 		if (sigaction(list[i], &act, NULL) == -1) exit_errno(__LINE__);
 	}
 }
 
-int main(int argc, char *argv[]) {
-	prog_name = argv[0];
+static void reset_signal_handler(int list[], int list_len) {
+	struct sigaction act;
+	memset(&act, 0, sizeof(struct sigaction));
+	act.sa_handler = SIG_DFL;
+	for (int i = 0; i < list_len; ++i) {
+		if (sigaction(list[i], &act, NULL) == -1) exit_errno(__LINE__);
+	}
+	unblock_signals();
+}
 
-	if (getpid() != 1) exit_error(__LINE__, "PID is not 1");
+static void kill_all_and_exit(int basic_info_mode, int wstatus) {
+	kill(-1, SIGCONT);
+	kill(-1, SIGTERM);
 
-	// sleep mode
-	if (argc == 1) {
+	int sig_alrm[1] = {SIGALRM};
+	register_signal_handler(sig_alrm, sizeof(sig_alrm) / sizeof(sig_alrm[0]));
 
-		register_signal_handler(unpause_list, sizeof(unpause_list) / sizeof(unpause_list[0]));
+	alarm(5);
+	while (wait(NULL) != -1);
+	int complete = errno == ECHILD;
+	alarm(0);
 
-		for (;;) {
-			pause();
-			if (last_sig != SIGCHLD) _exit(0);
-			waitpid(-1, 0, WNOHANG);
-			sigprocmask(SIG_SETMASK, &set_normal, NULL);
-		}
+	reset_signal_handler(sig_alrm, sizeof(sig_alrm) / sizeof(sig_alrm[0]));
 
-		exit_error(__LINE__, "DEAD CODE !!");
+	if (basic_info_mode) {
+		if (!complete) _exit(1);
+		_exit(0);
 	}
 
+	if (WIFEXITED(wstatus)) _exit(WEXITSTATUS(wstatus));
+	char *sig = strsignal(WTERMSIG(wstatus));
+	if (sig == NULL) sig = "NULL";
+	char buf[512];
+	snprintf(buf, sizeof(buf) - 1, "Terminated by signal %s", sig);
+	exit_error(__LINE__, buf);
+}
+
+void main_sleep() {
+	register_signal_handler(unpause_list, sizeof(unpause_list) / sizeof(unpause_list[0]));
+
+	for (;;) {
+		unblock_signals();
+		pause();
+		if (last_sig != SIGCHLD) {
+			reset_signal_handler(unpause_list, sizeof(unpause_list) / sizeof(unpause_list[0]));
+			kill_all_and_exit(1, 0);
+		}
+		while (waitpid(-1, 0, WNOHANG) != -1);
+	}
+}
+
+void main_with_child(int argc, char *argv[]) {
 	int cpid = fork();
 	if (cpid == -1) exit_errno(__LINE__);
 	else if (cpid) {
@@ -91,17 +117,17 @@ int main(int argc, char *argv[]) {
 		register_signal_handler(fwd_list, sizeof(fwd_list) / sizeof(fwd_list[0]));
 
 		for (;;) {
+			unblock_signals();
 			int status;
 			int pid = wait(&status);
 			if (pid == -1) {
 				// forward signal
 				if (errno == EINTR) kill(cpid, last_sig);
 				else exit_errno(__LINE__);
-			} else if (pid == cpid) {
-				if (WIFEXITED(status)) _exit(WEXITSTATUS(status));
-				exit_error(__LINE__, "Main process is not terminated normally");
+			} else if (pid == cpid && (WIFEXITED(status) || WIFSIGNALED(status))) {
+				reset_signal_handler(fwd_list, sizeof(fwd_list) / sizeof(fwd_list[0]));
+				kill_all_and_exit(0, status);
 			}
-			sigprocmask(SIG_SETMASK, &set_normal, NULL);
 		}
 
 	} else {
@@ -117,4 +143,14 @@ int main(int argc, char *argv[]) {
 	}
 
 	exit_error(__LINE__, "DEAD CODE !!");
+}
+
+int main(int argc, char *argv[]) {
+	prog_name = argv[0];
+
+	if (getpid() != 1) exit_error(__LINE__, "PID is not 1");
+
+	if (argc == 1) main_sleep();
+
+	main_with_child(argc, argv);
 }
