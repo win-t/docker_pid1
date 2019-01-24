@@ -14,7 +14,7 @@ static volatile sigset_t set_normal;
 static volatile int last_sig = 0;
 
 // forwarded signal
-static int fwd_list[] = {
+static const int fwd_list[] = {
 	SIGHUP,
 	SIGINT,
 	SIGQUIT,
@@ -25,10 +25,14 @@ static int fwd_list[] = {
 };
 
 // unpause signal
-static int unpause_list[] = {
+static const int unpause_list[] = {
 	SIGINT,
 	SIGTERM,
 	SIGCHLD,
+};
+
+static const int sig_alrm[] = {
+	SIGALRM,
 };
 
 // helper function
@@ -42,7 +46,7 @@ static void handle_signal(int signo) {
 	block_signal();
 }
 
-static void register_signal_handler(int list[], int list_len) {
+static void register_signal_handler(const int list[], const int list_len) {
 	sigemptyset((sigset_t*)(&set_block));
 	for (int i = 0; i < list_len; ++i) sigaddset((sigset_t*)(&set_block), list[i]);
 	sigprocmask(SIG_SETMASK, NULL, (sigset_t*)(&set_normal));
@@ -57,7 +61,7 @@ static void register_signal_handler(int list[], int list_len) {
 	}
 }
 
-static void reset_signal_handler(int list[], int list_len) {
+static void reset_signal_handler(const int list[], const int list_len) {
 	struct sigaction act;
 	memset(&act, 0, sizeof(struct sigaction));
 	act.sa_handler = SIG_DFL;
@@ -71,7 +75,6 @@ static void kill_all_and_exit(int basic_info_mode, int wstatus) {
 	kill(-1, SIGCONT);
 	kill(-1, SIGTERM);
 
-	int sig_alrm[1] = {SIGALRM};
 	register_signal_handler(sig_alrm, sizeof(sig_alrm) / sizeof(sig_alrm[0]));
 
 	alarm(5);
@@ -94,7 +97,7 @@ static void kill_all_and_exit(int basic_info_mode, int wstatus) {
 	exit_error(__LINE__, buf);
 }
 
-void main_sleep() {
+static void main_sleep() {
 	register_signal_handler(unpause_list, sizeof(unpause_list) / sizeof(unpause_list[0]));
 
 	for (;;) {
@@ -108,7 +111,7 @@ void main_sleep() {
 	}
 }
 
-void main_with_child(int argc, char *argv[]) {
+static void main_with_child(int argc, char *argv[]) {
 	int cpid = fork();
 	if (cpid == -1) exit_errno(__LINE__);
 	else if (cpid) {
