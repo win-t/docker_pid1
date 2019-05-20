@@ -107,7 +107,7 @@ static void main_sleep() {
 			reset_signal_handler(unpause_list, sizeof(unpause_list) / sizeof(unpause_list[0]));
 			kill_all_and_exit(1, 0);
 		}
-		while (!(waitpid(-1, 0, WNOHANG) > 0));
+		while (waitpid(-1, 0, WNOHANG) > 0);
 	}
 }
 
