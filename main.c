@@ -151,7 +151,18 @@ static void main_with_child(int argc, char *argv[]) {
 int main(int argc, char *argv[]) {
 	prog_name = argv[0];
 
-	if (getpid() != 1) exit_error(__LINE__, "PID is not 1");
+	if (getpid() != 1) {
+		fprintf(stderr, "[WARNING]: %s will not working unless running as pid 1\n", prog_name);
+		if (argc > 1) {
+			char *new_arg[argc];
+			for(int i = 1; i < argc; ++i) new_arg[i - 1] = argv[i];
+			new_arg[argc - 1] = 0;
+
+			execvp(new_arg[0], new_arg);
+			exit_errno(__LINE__);
+		}
+		_exit(0);
+	}
 
 	if (argc == 1) main_sleep();
 
