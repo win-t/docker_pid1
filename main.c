@@ -111,6 +111,14 @@ static void main_sleep() {
 	}
 }
 
+static void exec_child(int argc, char *argv[]) {
+	char *new_arg[argc];
+	for(int i = 1; i < argc; ++i) new_arg[i - 1] = argv[i];
+	new_arg[argc - 1] = 0;
+
+	execvp(new_arg[0], new_arg);
+}
+
 static void main_with_child(int argc, char *argv[]) {
 	int cpid = fork();
 	if (cpid == -1) exit_errno(__LINE__);
@@ -136,11 +144,7 @@ static void main_with_child(int argc, char *argv[]) {
 	} else {
 		// child process
 
-		char *new_arg[argc];
-		for(int i = 1; i < argc; ++i) new_arg[i - 1] = argv[i];
-		new_arg[argc - 1] = 0;
-
-		execvp(new_arg[0], new_arg);
+		exec_child(argc, argv);
 		exit_errno(__LINE__);
 
 	}
@@ -151,14 +155,17 @@ static void main_with_child(int argc, char *argv[]) {
 int main(int argc, char *argv[]) {
 	prog_name = argv[0];
 
+	for(int i = 1; i < argc; i++) if(strcmp("--", argv[i]) == 0) {
+		argc -= i;
+		argv[i] = argv[0];
+		argv = &argv[i];
+		break;
+	}
+
 	if (getpid() != 1) {
 		fprintf(stderr, "[WARNING]: %s will not working unless running as pid 1\n", prog_name);
 		if (argc > 1) {
-			char *new_arg[argc];
-			for(int i = 1; i < argc; ++i) new_arg[i - 1] = argv[i];
-			new_arg[argc - 1] = 0;
-
-			execvp(new_arg[0], new_arg);
+			exec_child(argc, argv);
 			exit_errno(__LINE__);
 		}
 		_exit(0);
