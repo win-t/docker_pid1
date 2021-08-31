@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <string.h>
 #include <signal.h>
+#include <sys/ioctl.h>
 
 static char *prog_name;
 
@@ -144,6 +145,10 @@ static void main_with_child(int argc, char *argv[]) {
 	} else {
 		// child process
 
+		setsid();
+
+		for(int fd = 0; fd < 3; fd++) ioctl(fd, TIOCSCTTY, 0);
+
 		exec_child(argc, argv);
 		exit_errno(__LINE__);
 
@@ -170,6 +175,8 @@ int main(int argc, char *argv[]) {
 		}
 		_exit(0);
 	}
+
+	for(int fd = 0; fd < 3; fd++) ioctl(fd, TIOCNOTTY);
 
 	if (argc == 1) main_sleep();
 
