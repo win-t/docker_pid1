@@ -93,9 +93,8 @@ static void kill_all_and_exit(int basic_info_mode, int wstatus) {
 	if (WIFEXITED(wstatus)) _exit(WEXITSTATUS(wstatus));
 	char *sig = strsignal(WTERMSIG(wstatus));
 	if (sig == NULL) sig = "NULL";
-	char buf[512];
-	snprintf(buf, sizeof(buf) - 1, "Terminated by signal %s", sig);
-	exit_error(__LINE__, buf);
+	fprintf(stderr, "Terminated by signal %s\n", sig);
+	_exit(128 + WTERMSIG(wstatus));
 }
 
 static void main_sleep() {
