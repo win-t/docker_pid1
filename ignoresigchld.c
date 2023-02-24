@@ -13,7 +13,7 @@ static void exit_errno(int line) { exit_error(line, strerror(errno)); }
 int main(int argc, char *argv[]) {
 	prog_name = argv[0];
 
-  signal(SIGCHLD, SIG_IGN);
+	signal(SIGCHLD, SIG_IGN);
 
 	if(argc <= 1) return 0;
 
