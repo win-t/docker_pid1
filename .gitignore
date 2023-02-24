@@ -33,3 +33,4 @@
 
 # Compiled
 docker_pid1
+ignoresigchld
