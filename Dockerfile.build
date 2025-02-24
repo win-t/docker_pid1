@@ -5,11 +5,8 @@ RUN apk -U add gcc musl-dev \
 
 WORKDIR /data
 
-COPY main.c ignoresigchld.c /data
-RUN gcc -Os -Wall -fdata-sections -ffunction-sections -Wl,--gc-sections -static -o docker_pid1 main.c \
- && strip -s docker_pid1 \
- && gcc -Os -Wall -fdata-sections -ffunction-sections -Wl,--gc-sections -static -o ignoresigchld ignoresigchld.c \
- && strip -s ignoresigchld
-
+COPY main.c /data
+RUN gcc -std=c11 -Os -Wall -Wextra -Wpedantic -Werror -fdata-sections -ffunction-sections -Wl,--gc-sections -static -o docker_pid1 main.c \
+ && strip -s docker_pid1
 
 ENTRYPOINT ["/bin/tar", "c"]

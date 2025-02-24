@@ -32,5 +32,5 @@
 *.dSYM/
 
 # Compiled
-docker_pid1
-ignoresigchld
+docker_pid1_amd64
+docker_pid1_aarch64

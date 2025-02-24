@@ -1,0 +1,14 @@
+AllowShortLoopsOnASingleLine: true
+AllowShortIfStatementsOnASingleLine: true
+ColumnLimit: 120
+BraceWrapping:
+  AfterFunction: false
+  AfterClass: false
+  AfterStruct: false
+  AfterControlStatement: false
+  AfterNamespace: false
+  AfterEnum: false
+  BeforeElse: true
+  SplitEmptyFunction: false
+  SplitEmptyRecord: false
+  SplitEmptyNamespace: false

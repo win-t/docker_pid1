@@ -1,183 +1,155 @@
 #define _GNU_SOURCE
 
-#include <unistd.h>
-#include <sys/wait.h>
-#include <stdio.h>
 #include <errno.h>
-#include <string.h>
 #include <signal.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/ioctl.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 static char *prog_name;
 
-static volatile sigset_t set_block;
-static volatile sigset_t set_normal;
-static volatile int last_sig = 0;
-
-// forwarded signal
-static const int fwd_list[] = {
-	SIGHUP,
-	SIGINT,
-	SIGQUIT,
-	SIGTERM,
-	SIGUSR1,
-	SIGUSR2,
-	SIGWINCH,
-};
-
-// unpause signal
-static const int unpause_list[] = {
-	SIGINT,
-	SIGTERM,
-	SIGCHLD,
-};
-
-static const int sig_alrm[] = {
-	SIGALRM,
-};
-
-// helper function
-static void exit_error(int line, char *msg) { fprintf(stderr, "[ERROR %s] line %d: %s\n", prog_name, line, msg); _exit(1); }
-static void exit_errno(int line) { exit_error(line, strerror(errno)); }
-static void block_signal() { sigprocmask(SIG_SETMASK, (sigset_t*)(&set_block), NULL); }
-static void unblock_signals() { sigprocmask(SIG_SETMASK, (sigset_t*)(&set_normal), NULL); }
-
-static void handle_signal(int signo) {
-	last_sig = signo;
-	block_signal();
+static _Noreturn void exit_error(int line, char *msg) {
+  fprintf(stderr, "[ERROR %s] line %d: %s\n", prog_name, line, msg);
+  _exit(1);
 }
 
-static void register_signal_handler(const int list[], const int list_len) {
-	sigemptyset((sigset_t*)(&set_block));
-	for (int i = 0; i < list_len; ++i) sigaddset((sigset_t*)(&set_block), list[i]);
-	sigprocmask(SIG_SETMASK, NULL, (sigset_t*)(&set_normal));
+static _Noreturn void exit_errno(int line) { exit_error(line, strerror(errno)); }
 
-	struct sigaction act;
-	memset(&act, 0, sizeof(struct sigaction));
-	act.sa_handler = handle_signal;
-	act.sa_mask = set_block;
-
-	for (int i = 0; i < list_len; ++i) {
-		if (sigaction(list[i], &act, NULL) == -1) exit_errno(__LINE__);
-	}
+static int get_wait_second(void) {
+  char *s = getenv("PID1_WAIT_SECOND");
+  if (s) {
+    int i = atoi(s);
+    if (i > 0) return i;
+  }
+  return 5; // default
 }
 
-static void reset_signal_handler(const int list[], const int list_len) {
-	struct sigaction act;
-	memset(&act, 0, sizeof(struct sigaction));
-	act.sa_handler = SIG_DFL;
-	for (int i = 0; i < list_len; ++i) {
-		if (sigaction(list[i], &act, NULL) == -1) exit_errno(__LINE__);
-	}
-	unblock_signals();
+static _Noreturn void exec_child_or_exit_error(int line, char **argv) {
+  execvp(argv[0], argv);
+  exit_errno(line);
 }
 
-static void kill_all_and_exit(int basic_info_mode, int wstatus) {
-	kill(-1, SIGCONT);
-	kill(-1, SIGTERM);
+static void empty_handler(int sig) { (void)sig; }
 
-	register_signal_handler(sig_alrm, sizeof(sig_alrm) / sizeof(sig_alrm[0]));
-
-	alarm(5);
-	while (wait(NULL) != -1);
-	int complete = errno == ECHILD;
-	alarm(0);
-
-	reset_signal_handler(sig_alrm, sizeof(sig_alrm) / sizeof(sig_alrm[0]));
-
-	if (basic_info_mode) {
-		if (!complete) _exit(1);
-		_exit(0);
-	}
-
-	if (WIFEXITED(wstatus)) _exit(WEXITSTATUS(wstatus));
-	char *sig = strsignal(WTERMSIG(wstatus));
-	if (sig == NULL) sig = "NULL";
-	fprintf(stderr, "Terminated by signal %s\n", sig);
-	_exit(128 + WTERMSIG(wstatus));
+static void set_handler(int sig, void (*handler)(int)) {
+  sigaction(sig, &(struct sigaction){.sa_handler = handler}, NULL);
 }
 
-static void main_sleep() {
-	register_signal_handler(unpause_list, sizeof(unpause_list) / sizeof(unpause_list[0]));
+static int kill_all_and_wait_till_complete(void) {
+  kill(-1, SIGCONT);
+  kill(-1, SIGTERM);
 
-	for (;;) {
-		unblock_signals();
-		pause();
-		if (last_sig != SIGCHLD) {
-			reset_signal_handler(unpause_list, sizeof(unpause_list) / sizeof(unpause_list[0]));
-			kill_all_and_exit(1, 0);
-		}
-		while (waitpid(-1, 0, WNOHANG) > 0);
-	}
+  set_handler(SIGALRM, empty_handler);
+  alarm(get_wait_second());
+  while (wait(NULL) != -1);
+  return (errno == ECHILD);
 }
 
-static void exec_child(int argc, char *argv[]) {
-	char *new_arg[argc];
-	for(int i = 1; i < argc; ++i) new_arg[i - 1] = argv[i];
-	new_arg[argc - 1] = 0;
+static volatile sig_atomic_t quit = false;
 
-	execvp(new_arg[0], new_arg);
+static void main_pause_quit_handler(int sig) {
+  (void)sig;
+  quit = true;
 }
 
-static void main_with_child(int argc, char *argv[]) {
-	int cpid = fork();
-	if (cpid == -1) exit_errno(__LINE__);
-	else if (cpid) {
-		// parent process
-
-		register_signal_handler(fwd_list, sizeof(fwd_list) / sizeof(fwd_list[0]));
-
-		for (;;) {
-			unblock_signals();
-			int status;
-			int pid = wait(&status);
-			if (pid == -1) {
-				// forward signal
-				if (errno == EINTR) kill(cpid, last_sig);
-				else exit_errno(__LINE__);
-			} else if (pid == cpid && (WIFEXITED(status) || WIFSIGNALED(status))) {
-				reset_signal_handler(fwd_list, sizeof(fwd_list) / sizeof(fwd_list[0]));
-				kill_all_and_exit(0, status);
-			}
-		}
-
-	} else {
-		// child process
-
-		setsid();
-
-		for(int fd = 0; fd < 3; fd++) ioctl(fd, TIOCSCTTY, 0);
-
-		exec_child(argc, argv);
-		exit_errno(__LINE__);
-
-	}
-
-	exit_error(__LINE__, "DEAD CODE !!");
+static void main_pause_sigchld_handler(int sig) {
+  (void)sig;
+  while (waitpid(-1, NULL, WNOHANG) > 0);
 }
 
-int main(int argc, char *argv[]) {
-	prog_name = argv[0];
+static _Noreturn void main_pause(void) {
+  set_handler(SIGINT, main_pause_quit_handler);
+  set_handler(SIGTERM, main_pause_quit_handler);
+  set_handler(SIGCHLD, main_pause_sigchld_handler);
 
-	for(int i = 1; i < argc; i++) if(strcmp("--", argv[i]) == 0) {
-		argc -= i;
-		argv[i] = argv[0];
-		argv = &argv[i];
-		break;
-	}
+  while (!quit) pause();
 
-	if (getpid() != 1) {
-		fprintf(stderr, "[WARNING]: %s will not working unless running as pid 1\n", prog_name);
-		if (argc > 1) {
-			exec_child(argc, argv);
-			exit_errno(__LINE__);
-		}
-		_exit(0);
-	}
+  _exit(kill_all_and_wait_till_complete() ? 0 : 1);
+}
 
-	for(int fd = 0; fd < 3; fd++) ioctl(fd, TIOCNOTTY);
+static pid_t cpid;
 
-	if (argc == 1) main_sleep();
+static void forward_sig_handler(int sig) { kill(cpid, sig); }
 
-	main_with_child(argc, argv);
+static volatile int cpid_status;
+
+static void main_with_child_sigchld_handler(int sig) {
+  (void)sig;
+  while (true) {
+    int status;
+    pid_t wpid = waitpid(-1, &status, WNOHANG);
+    if (wpid <= 0) break;
+    if (wpid == cpid && (WIFEXITED(status) || WIFSIGNALED(status))) {
+      cpid_status = status;
+      quit = true;
+    }
+  }
+}
+
+static _Noreturn void main_with_child(char **argv) {
+  for (int fd = 0; fd < 3; fd++) ioctl(fd, TIOCNOTTY);
+
+  cpid = fork();
+  if (cpid == -1) {
+    exit_errno(__LINE__);
+  } else if (!cpid) { // child process
+    setsid();
+    for (int fd = 0; fd < 3; fd++) ioctl(fd, TIOCSCTTY, 1);
+    exec_child_or_exit_error(__LINE__, argv);
+    exit_error(__LINE__, "DEAD CODE !!");
+  }
+
+  set_handler(SIGCHLD, main_with_child_sigchld_handler);
+  main_with_child_sigchld_handler(SIGCHLD); // to handle the case when child process is already dead
+
+  set_handler(SIGHUP, forward_sig_handler);
+  set_handler(SIGINT, forward_sig_handler);
+  set_handler(SIGQUIT, forward_sig_handler);
+  set_handler(SIGTERM, forward_sig_handler);
+  set_handler(SIGUSR1, forward_sig_handler);
+  set_handler(SIGUSR2, forward_sig_handler);
+  set_handler(SIGWINCH, forward_sig_handler);
+
+  while (!quit) pause();
+  int wstatus = cpid_status;
+
+  kill_all_and_wait_till_complete();
+
+  if (WIFEXITED(wstatus)) _exit(WEXITSTATUS(wstatus));
+  char *sig = strsignal(WTERMSIG(wstatus));
+  if (sig == NULL) sig = "NULL";
+  fprintf(stderr, "Terminated by signal %s\n", sig);
+  _exit(128 + WTERMSIG(wstatus));
+}
+
+int main(int argc, char **argv) {
+  prog_name = argv[0];
+
+  for (int i = 1; i < argc; i++) {
+    if (strcmp("--", argv[i]) == 0) {
+      argc -= i;
+      argv += i;
+      break;
+    }
+  }
+  argc--;
+  argv++;
+
+  if (getpid() != 1) {
+    fprintf(stderr, "[WARNING]: %s will not working unless running as pid 1\n", prog_name);
+    if (argc > 0) exec_child_or_exit_error(__LINE__, argv);
+    _exit(1);
+  }
+
+  if (argc == 0) {
+    main_pause();
+  } else {
+    main_with_child(argv);
+  }
+
+  exit_error(__LINE__, "DEAD CODE !!");
 }
