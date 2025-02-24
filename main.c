@@ -33,20 +33,27 @@ static _Noreturn void exec_child_or_exit_error(int line, char **argv) {
   exit_errno(line);
 }
 
-static void empty_handler(int sig) { (void)sig; }
-
 static void set_handler(int sig, void (*handler)(int)) {
   sigaction(sig, &(struct sigaction){.sa_handler = handler}, NULL);
+}
+
+static volatile sig_atomic_t alarm_timeout = false;
+
+static void alarm_handler(int sig) {
+  (void)sig;
+  alarm_timeout = true;
 }
 
 static int kill_all_and_wait_till_complete(void) {
   kill(-1, SIGCONT);
   kill(-1, SIGTERM);
 
-  set_handler(SIGALRM, empty_handler);
+  set_handler(SIGALRM, alarm_handler);
   alarm(get_wait_second());
-  while (wait(NULL) != -1);
-  return (errno == ECHILD);
+  while (!alarm_timeout) {
+    if (wait(NULL) == -1 && errno == ECHILD) return true;
+  }
+  return false;
 }
 
 static volatile sig_atomic_t quit = false;
