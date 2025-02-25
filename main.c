@@ -50,10 +50,19 @@ static int kill_all_and_wait_till_complete(void) {
 
   set_handler(SIGALRM, alarm_handler);
   alarm(get_wait_second());
+
+  int completed = false;
   while (!alarm_timeout) {
-    if (wait(NULL) == -1 && errno == ECHILD) return true;
+    if (wait(NULL) == -1 && errno == ECHILD) {
+      completed = true;
+      break;
+    }
   }
-  return false;
+
+  alarm(0);
+  set_handler(SIGALRM, SIG_DFL);
+
+  return completed;
 }
 
 static volatile sig_atomic_t quit = false;
@@ -74,6 +83,10 @@ static _Noreturn void main_pause(void) {
   set_handler(SIGCHLD, main_pause_sigchld_handler);
 
   while (!quit) pause();
+
+  set_handler(SIGINT, SIG_DFL);
+  set_handler(SIGTERM, SIG_DFL);
+  set_handler(SIGCHLD, SIG_DFL);
 
   _exit(kill_all_and_wait_till_complete() ? 0 : 1);
 }
@@ -124,12 +137,20 @@ static _Noreturn void main_with_child(char **argv) {
   while (!quit) pause();
   int wstatus = cpid_status;
 
+  set_handler(SIGHUP, SIG_DFL);
+  set_handler(SIGINT, SIG_DFL);
+  set_handler(SIGQUIT, SIG_DFL);
+  set_handler(SIGTERM, SIG_DFL);
+  set_handler(SIGUSR1, SIG_DFL);
+  set_handler(SIGUSR2, SIG_DFL);
+  set_handler(SIGWINCH, SIG_DFL);
+
+  set_handler(SIGCHLD, SIG_DFL);
+
   kill_all_and_wait_till_complete();
 
   if (WIFEXITED(wstatus)) _exit(WEXITSTATUS(wstatus));
-  char *sig = strsignal(WTERMSIG(wstatus));
-  if (sig == NULL) sig = "NULL";
-  fprintf(stderr, "Terminated by signal %s\n", sig);
+  kill(getpid(), WTERMSIG(wstatus));
   _exit(128 + WTERMSIG(wstatus));
 }
 
