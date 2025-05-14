@@ -167,16 +167,15 @@ int main(int argc, char **argv) {
   argc--;
   argv++;
 
-  if (getpid() != 1) {
-    fprintf(stderr, "[WARNING]: %s will not working unless running as pid 1\n", prog_name);
-    if (argc > 0) exec_child_or_exit_error(__LINE__, argv);
-    _exit(1);
-  }
-
   if (argc == 0) {
     main_pause();
   } else {
-    main_with_child(argv);
+    if (getpid() == 1) {
+      main_with_child(argv);
+    } else {
+      fprintf(stderr, "[WARNING]: %s will not working unless running as pid 1\n", prog_name);
+      exec_child_or_exit_error(__LINE__, argv);
+    }
   }
 
   exit_error(__LINE__, "DEAD CODE !!");
