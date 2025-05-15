@@ -88,7 +88,11 @@ static _Noreturn void main_pause(void) {
   set_handler(SIGTERM, SIG_DFL);
   set_handler(SIGCHLD, SIG_DFL);
 
-  _exit(kill_all_and_wait_till_complete() ? 0 : 1);
+  if (getpid() == 1) {
+    _exit(kill_all_and_wait_till_complete() ? 0 : 1);
+  } else {
+    _exit(0);
+  }
 }
 
 static pid_t cpid;
