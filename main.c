@@ -34,7 +34,7 @@ static _Noreturn void exec_child_or_exit_error(int line, char **argv) {
 }
 
 static void set_handler(int sig, void (*handler)(int)) {
-  sigaction(sig, &(struct sigaction){.sa_handler = handler}, NULL);
+  if (sigaction(sig, &(struct sigaction){.sa_handler = handler}, NULL) == -1) exit_errno(__LINE__);
 }
 
 static volatile sig_atomic_t alarm_timeout = false;
@@ -151,6 +151,7 @@ static _Noreturn void main_with_child(char **argv) {
 
   set_handler(SIGCHLD, SIG_DFL);
 
+  // main_with_child callers ensure that getpid() == 1
   kill_all_and_wait_till_complete();
 
   if (WIFEXITED(wstatus)) _exit(WEXITSTATUS(wstatus));
