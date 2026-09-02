@@ -12,29 +12,29 @@
 
 static char *prog_name;
 
-static _Noreturn void exit_error(int line, char *msg) {
+[[noreturn]] static void exit_error(int line, char *msg) {
   fprintf(stderr, "[ERROR %s] line %d: %s\n", prog_name, line, msg);
   _exit(1);
 }
 
-static _Noreturn void exit_errno(int line) { exit_error(line, strerror(errno)); }
+[[noreturn]] static void exit_errno(int line) { exit_error(line, strerror(errno)); }
 
-static int get_wait_second(void) {
+static unsigned int get_wait_second() {
   char *s = getenv("PID1_WAIT_SECOND");
   if (s) {
     int i = atoi(s);
-    if (i > 0) return i;
+    if (i > 0) return (unsigned int)i;
   }
   return 5; // default
 }
 
-static _Noreturn void exec_child_or_exit_error(int line, char **argv) {
+[[noreturn]] static void exec_child_or_exit_error(int line, char **argv) {
   execvp(argv[0], argv);
   exit_errno(line);
 }
 
 static void set_handler(int sig, void (*handler)(int)) {
-  if (sigaction(sig, &(struct sigaction){.sa_handler = handler}, NULL) == -1) exit_errno(__LINE__);
+  if (sigaction(sig, &(struct sigaction){.sa_handler = handler}, nullptr) == -1) exit_errno(__LINE__);
 }
 
 static volatile sig_atomic_t alarm_timeout = false;
@@ -44,16 +44,16 @@ static void alarm_handler(int sig) {
   alarm_timeout = true;
 }
 
-static int kill_all_and_wait_till_complete(void) {
+static bool kill_all_and_wait_till_complete() {
   kill(-1, SIGCONT);
   kill(-1, SIGTERM);
 
   set_handler(SIGALRM, alarm_handler);
   alarm(get_wait_second());
 
-  int completed = false;
+  bool completed = false;
   while (!alarm_timeout) {
-    if (wait(NULL) == -1 && errno == ECHILD) {
+    if (wait(nullptr) == -1 && errno == ECHILD) {
       completed = true;
       break;
     }
@@ -74,10 +74,10 @@ static void main_pause_quit_handler(int sig) {
 
 static void main_pause_sigchld_handler(int sig) {
   (void)sig;
-  while (waitpid(-1, NULL, WNOHANG) > 0);
+  while (waitpid(-1, nullptr, WNOHANG) > 0);
 }
 
-static _Noreturn void main_pause(void) {
+[[noreturn]] static void main_pause() {
   set_handler(SIGINT, main_pause_quit_handler);
   set_handler(SIGTERM, main_pause_quit_handler);
   set_handler(SIGCHLD, main_pause_sigchld_handler);
@@ -89,9 +89,9 @@ static _Noreturn void main_pause(void) {
   set_handler(SIGCHLD, SIG_DFL);
 
   if (getpid() == 1) {
-    _exit(kill_all_and_wait_till_complete() ? 0 : 1);
+    _exit(kill_all_and_wait_till_complete() ? EXIT_SUCCESS : EXIT_FAILURE);
   } else {
-    _exit(0);
+    _exit(EXIT_SUCCESS);
   }
 }
 
@@ -114,7 +114,7 @@ static void main_with_child_sigchld_handler(int sig) {
   }
 }
 
-static _Noreturn void main_with_child(char **argv) {
+[[noreturn]] static void main_with_child(char **argv) {
   for (int fd = 0; fd < 3; fd++) ioctl(fd, TIOCNOTTY);
 
   cpid = fork();
@@ -141,22 +141,25 @@ static _Noreturn void main_with_child(char **argv) {
   while (!quit) pause();
   int wstatus = cpid_status;
 
-  set_handler(SIGHUP, SIG_DFL);
-  set_handler(SIGINT, SIG_DFL);
-  set_handler(SIGQUIT, SIG_DFL);
-  set_handler(SIGTERM, SIG_DFL);
-  set_handler(SIGUSR1, SIG_DFL);
-  set_handler(SIGUSR2, SIG_DFL);
   set_handler(SIGWINCH, SIG_DFL);
+  set_handler(SIGUSR2, SIG_DFL);
+  set_handler(SIGUSR1, SIG_DFL);
+  set_handler(SIGTERM, SIG_DFL);
+  set_handler(SIGQUIT, SIG_DFL);
+  set_handler(SIGINT, SIG_DFL);
+  set_handler(SIGHUP, SIG_DFL);
 
   set_handler(SIGCHLD, SIG_DFL);
 
-  // main_with_child callers ensure that getpid() == 1
-  kill_all_and_wait_till_complete();
+  if (getpid() == 1) {
+    kill_all_and_wait_till_complete();
 
-  if (WIFEXITED(wstatus)) _exit(WEXITSTATUS(wstatus));
-  kill(getpid(), WTERMSIG(wstatus));
-  _exit(128 + WTERMSIG(wstatus));
+    if (WIFEXITED(wstatus)) _exit(WEXITSTATUS(wstatus));
+    kill(getpid(), WTERMSIG(wstatus));
+    _exit(128 + WTERMSIG(wstatus));
+  } else {
+    _exit(EXIT_SUCCESS);
+  }
 }
 
 int main(int argc, char **argv) {
@@ -178,7 +181,7 @@ int main(int argc, char **argv) {
     if (getpid() == 1) {
       main_with_child(argv);
     } else {
-      fprintf(stderr, "[WARNING]: %s will not working unless running as pid 1\n", prog_name);
+      fprintf(stderr, "[WARNING]: %s will not working unless running as pid 1, will exec directly\n", prog_name);
       exec_child_or_exit_error(__LINE__, argv);
     }
   }

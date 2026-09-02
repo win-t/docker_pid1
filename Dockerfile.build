@@ -6,7 +6,7 @@ RUN apk -U add gcc musl-dev \
 WORKDIR /data
 
 COPY main.c /data
-RUN gcc -std=c11 -Os -Wall -Wextra -Wpedantic -Werror -fdata-sections -ffunction-sections -Wl,--gc-sections -static -o docker_pid1 main.c \
+RUN gcc -std=c23 -Os -Wall -Wextra -Wpedantic -Wconversion -Warith-conversion -Werror -fdata-sections -ffunction-sections -Wl,--gc-sections -static -o docker_pid1 main.c \
  && strip -s docker_pid1
 
 ENTRYPOINT ["/bin/tar", "c"]
