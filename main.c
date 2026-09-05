@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -25,7 +26,13 @@ static unsigned int get_wait_second() {
     int i = atoi(s);
     if (i > 0) return (unsigned int)i;
   }
-  return 5; // default
+  return 5;
+}
+
+static char *get_wait_path() {
+  char *wait_path = getenv("PID1_WAIT_PATH");
+  if (!wait_path) wait_path = "/run/pid1.wait";
+  return wait_path;
 }
 
 [[noreturn]] static void exec_child_or_exit_error(int line, char **argv) {
@@ -48,15 +55,23 @@ static bool kill_all_and_wait_till_complete() {
   kill(-1, SIGCONT);
   kill(-1, SIGTERM);
 
+  char *wait_path = get_wait_path();
+
   set_handler(SIGALRM, alarm_handler);
-  alarm(get_wait_second());
 
   bool completed = false;
-  while (!alarm_timeout) {
-    if (wait(nullptr) == -1 && errno == ECHILD) {
-      completed = true;
-      break;
+  while (true) {
+    int unlink_ret = unlink(wait_path);
+    bool unlink_ok = unlink_ret == 0 || (unlink_ret == -1 && errno == ENOENT);
+    alarm(get_wait_second());
+    alarm_timeout = false;
+    while (!alarm_timeout) {
+      if (wait(nullptr) == -1 && errno == ECHILD) {
+        completed = true;
+        break;
+      }
     }
+    if (!unlink_ok || completed || stat(wait_path, &(struct stat){}) == -1) break;
   }
 
   alarm(0);
